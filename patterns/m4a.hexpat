@@ -2,7 +2,7 @@
 
 #pragma endian big
 
-#pragma MIME audio/x-m4a
+#pragma MIME audio/x-m4a 
 
 import std.io;
 import std.mem;
@@ -684,12 +684,137 @@ struct MediaDataBox : BaseBox {
     std::mem::Bytes<boxSize - sizeof(size) - sizeof(type)> data;
 };
 
+
+struct MovieFragmentHeaderBox : FullBox {
+    u32 sequence_number;
+};
+
+struct TrackFragmentHeaderBox : FullBox {
+    u32 track_id;
+    if (this.flags & 0x000001) {
+        u64 base_data_offset;
+    }
+    if (this.flags & 0x000002) {
+        u32 sample_description_index;
+    }
+    if (this.flags & 0x000008) {
+        u32 default_sample_duration;
+    }
+    if (this.flags & 0x000010) {
+        u32 default_sample_size;
+    }
+    if (this.flags & 0x000020) {    
+        u32 default_sample_flags;
+    }
+};
+
+struct TrackFragmentBaseMediaDecodeTimeBox : FullBox {
+    if (this.version == 1) {
+        u64 base_media_decode_time;
+    } else { // if (this.version == 0)
+        u32 base_media_decode_time;
+    }
+};
+
+struct SubsampleBoxEntry {
+    u16 bytes_of_clear_data;
+    u32 bytes_of_protected_data;
+};
+
+struct SubsampleBoxEntryV1 {
+    u16 multi_subindex;
+    u16 bytes_of_clear_data;
+    u32 bytes_of_protected_data;
+};
+
+struct SampleEncryptionEntryV1 {
+    u16 multi_iv_count;
+    u16 multi_subindex_iv[multi_iv_count];
+    u16 subsample_count;
+    SubsampleBoxEntryV1 subsample_entries[subsample_count];
+};
+
+struct SampleEncryptionEntryV2 {
+    // u16 initialization_vector_size;
+    u16 subsample_count;
+    SubsampleBoxEntry subsample_entries[subsample_count];
+};
+
+struct SampleEncryptionBox : FullBox {
+    u32 sample_count;
+    if (this.version == 0) {
+        SampleEncryptionEntryV2 sample_entries[sample_count];
+    } else if (this.version == 1) {
+        SampleEncryptionEntryV1 sample_entries[sample_count];
+    } else if (this.version == 2) {
+        SampleEncryptionEntryV2 sample_entries[sample_count];
+    }
+    u8 unk[while($ != endOffset)];
+};
+
+struct TrackRunSampleEntry {
+    // u32 sample_duration;
+    // u32 sample_size;
+    // u32 sample_flags;
+    // if (this.version == 0) {
+    //     u32 sample_composition_time_offset;
+    // } else { // if (this.version == 1)
+    //     s32 sample_composition_time_offset;
+    // }
+
+    // TODO: ImHex does not support context-aware fields yet.
+};
+
+struct TrackRunBox : FullBox {
+    u32 sample_count;
+    if (this.flags & 0x000001) {
+        u32 data_offset;
+    }
+    if (this.flags & 0x000004) {
+        u32 first_sample_flags;
+    }
+    // TrackRunSampleEntry sample_entries[this.sample_count];
+    u8 unk[while($ != endOffset)];
+};
+
+struct SubTrackFragmentBox {
+    u32 type = std::mem::read_unsigned($ + 4, 4, std::mem::Endian::Big);
+
+    match (str(type)) {
+        ("tfhd"): TrackFragmentHeaderBox box [[inline]];
+        ("tfdt"): TrackFragmentBaseMediaDecodeTimeBox box [[inline]];
+        ("senc"): SampleEncryptionBox box [[inline]];
+        ("trun"): TrackRunBox box [[inline]];
+        (_): UnknownBox box [[inline]];
+    }
+} [[name(std::format("TrackFragmentBox({})", box.type))]];
+
+struct TrackFragmentBox : BaseBox {
+    SubTrackFragmentBox box[while($ < endOffset)] [[inline]];
+};
+
+struct SubMovieFragmentBox {
+    u32 type = std::mem::read_unsigned($ + 4, 4, std::mem::Endian::Big);
+
+    match (str(type)) {
+        ("mfhd"): MovieFragmentHeaderBox box [[inline]];
+        ("traf"): TrackFragmentBox box [[inline]];
+        (_): UnknownBox box [[inline]];
+    }
+} [[name(std::format("MovieFragmentBox({})", box.type))]];
+
+struct MovieFragmentBox : BaseBox {
+    SubMovieFragmentBox box[while($ < endOffset)] [[inline]];
+};
+
+
 struct Box {
     u32 type = std::mem::read_unsigned($ + 4, 4, std::mem::Endian::Big);
 
     match (str(type)) {
         ("ftyp"): FileTypeBox box [[inline]];
         ("moov"): MovieBox box [[inline]];
+        ("moof"): MovieFragmentBox box [[inline]];
         ("mdat"): MediaDataBox box [[inline]];
         (_): UnknownBox box [[inline]];
     }
