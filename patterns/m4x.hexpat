@@ -1,8 +1,13 @@
-#pragma description MPEG-4 Part 14 digital multimedia container only for audio (M4A)
+#pragma description MPEG-4 Part 14 digital multimedia container (M4A, M4V, M4S)
 
 #pragma endian big
 
-#pragma MIME audio/x-m4a 
+#pragma MIME audio/mp4
+#pragma MIME video/mp4
+#pragma MIME application/mp4
+#pragma MIME audio/x-m4a
+#pragma MIME video/x-m4v
+#pragma MIME video/iso.segment
 
 import std.io;
 import std.mem;
@@ -406,7 +411,7 @@ struct TrackBox : BaseBox {
     SubTrackBox box[while($ < endOffset)] [[inline]];
 };
 
-// Extended: Begin - 'moov' / 'udta' box
+// Extended: Start - 'moov' / 'udta' box
 struct MovieUserDataHandlerBox : FullBox {
     u32 component_type;
     char handler_type[4];
@@ -664,6 +669,28 @@ struct MovieUserDataBox : BaseBox {
 };
 // Extended: End - 'moov' / 'udta' box
 
+// Extended: Start - 'moov' / 'mvex' box
+struct TrackExtendsBox : FullBox {
+    u32 track_ID;
+    u32 default_sample_description_index;
+    u32 default_sample_duration;
+    u32 default_sample_size;
+    u32 default_sample_flags;
+};
+
+struct SubMovieExtendsBox {
+    u32 type = std::mem::read_unsigned($ + 4, 4, std::mem::Endian::Big);
+
+    match (str(type)) {
+        ("trex"): TrackExtendsBox box [[inline]];
+        (_): UnknownBox box [[inline]];
+    }
+} [[name(std::format("MovieExtendsBox({})", box.type))]];
+
+struct MovieExtendsBox : BaseBox {
+    SubMovieExtendsBox box[while($ < endOffset)] [[inline]];
+};
+
 struct SubMovieBox {
     u32 type = std::mem::read_unsigned($ + 4, 4, std::mem::Endian::Big);
 
@@ -671,6 +698,7 @@ struct SubMovieBox {
         ("mvhd"): MovieHeaderBox box [[inline]];
         ("trak"): TrackBox box [[inline]];
         ("udta"): MovieUserDataBox box [[inline]]; // Extended: Add 'udat' box
+        ("mvex"): MovieExtendsBox box [[inline]]; // Extended: Add 'mvex' box
         (_): UnknownBox box [[inline]];
         // TODO: Add "iods" box
     }
